@@ -18,6 +18,7 @@ import torch
 HAS_NPU = False
 try:
     import torch_npu  # noqa: F401
+    import custom_comm  # noqa: F401
     HAS_NPU = True
 except ImportError:
     pass
@@ -111,7 +112,7 @@ def main():
             for label, us in results:
                 print(f"  {label:<30s}  {us:>10.1f}")
     else:
-        results = bench_allgather_batch(rank, world_size, hcom, device)
+        results = bench_homogeneous(hcom, world_size, device)
         if rank == 0:
             print(f"\nAllGatherBatch Benchmark (Phase: {phase}, W={world_size})")
             print(f"  {'descs':>5} {'size':>10} {'us':>10}")
