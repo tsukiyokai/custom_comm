@@ -1,0 +1,40 @@
+# custom_comm 模块分层架构
+# 层间依赖严格自顶向下
+
+direction: down
+
+python: Python 层 {
+  ops: custom_comm.ops\n类型提示 + .so 加载
+  converter: converters/\nGE converter (Phase 3)
+}
+
+torch: Torch Binding 层 {
+  schema: TORCH_LIBRARY\nschema 注册
+  npu: PrivateUse1 impl\nNPU 设备分发
+  meta: Meta impl\nshape 推导 (torch.compile)
+}
+
+capi: C API 层 {
+  entry: HcclAllGatherBatch()\n入口 + 策略分发
+  phase1: DecomposedStrategy\nbyte-packing (Phase 1)
+  phase2: CcuKernelAllGatherBatchMesh1D\n零拷贝 CCU kernel (Phase 2)
+  ctx: EngineCtx\n上下文缓存管理
+}
+
+sdk: CANN SDK 9.0.0 {
+  hccl_api: include/hccl/\n公开稳定 API
+  ccu_fw: pkg_inc/hcomm/ccu/\nCCU kernel 框架
+  acl: acl_rt\nACL 运行时
+}
+
+# 层间依赖
+python -> torch: torch.ops.custom_comm
+torch -> capi: C++ 函数调用
+capi -> sdk: SDK API 调用
+
+# 层内关键路径
+capi.entry -> capi.phase1: CUSTOM_COMM_USE_CCU=0 {
+  style.stroke-dash: 3
+}
+capi.entry -> capi.phase2: CUSTOM_COMM_USE_CCU=1
+capi.phase2 -> capi.ctx: 获取 kernel/channel handle

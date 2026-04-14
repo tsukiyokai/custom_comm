@@ -1,0 +1,64 @@
+@startuml phase2_ccu_flow
+!theme plain
+skinparam defaultFontName "Noto Sans CJK SC"
+skinparam responseMessageBelowArrow true
+hide footbox
+
+title Phase 2 CCU Batched AllGather 执行流程
+
+participant "Python\ncustom_comm.ops" as Py
+participant "Torch Dispatch\nPrivateUse1" as TD
+participant "C API\nHcclAllGatherBatch" as CAPI
+participant "EngineCtx\n缓存管理" as Ctx
+participant "HCCL Runtime" as RT
+participant "CCU Hardware\nAlgorithm()" as HW
+
+autonumber
+
+Py -> TD : allgather_batch(inputs, hcom, world_size)
+activate TD
+TD -> CAPI : allgather_batch_npu()
+activate CAPI
+
+CAPI -> CAPI : 构建 HcclAllGatherDesc[]
+
+CAPI -> Ctx : InitCcuContext(comm, tag)
+activate Ctx
+
+alt 首次调用 (~200-500us)
+    Ctx -> RT : HcclEngineCtxCreate(comm, tag, CCU)
+    Ctx -> RT : HcclChannelAcquire() x (W-1)
+    Ctx -> RT : HcclCcuKernelRegister(creator, arg)
+    Ctx -> RT : HcclCcuKernelRegisterFinish()
+    note right of RT : CcuRep -> 微码翻译
+else 后续调用 (缓存命中)
+    Ctx -> RT : HcclEngineCtxGet() -> 已缓存ctx
+end
+
+Ctx --> CAPI : kernelHandle + channels
+deactivate Ctx
+
+CAPI -> CAPI : 构造 AllGatherBatchTaskArg
+CAPI -> RT : HcclCcuKernelLaunch(taskArg)
+activate RT
+RT -> HW : CCU 调度
+activate HW
+
+HW -> HW : PreSync()
+loop i = 0..descCount-1
+    HW -> HW : WriteNb x (W-1) 到远端 recvBuf
+    HW -> HW : LocalCopyNb x 1 (self-copy)
+end
+HW -> HW : PostSync()
+
+HW --> RT : 完成
+deactivate HW
+RT --> CAPI
+deactivate RT
+
+CAPI --> TD : output Tensor[]
+deactivate CAPI
+TD --> Py : gathered tensors
+deactivate TD
+
+@enduml

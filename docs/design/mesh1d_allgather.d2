@@ -1,0 +1,76 @@
+# Mesh1D AllGather 通信拓扑 (W=4, descCount=2)
+# 每个 rank 将自身数据发送到所有其他 rank 的 recvBuf 对应位置
+
+direction: down
+
+title: Mesh1D AllGather (W=4, descCount=2) {
+  shape: text
+  style.font-size: 20
+}
+
+# 4 个 Rank 的 recvBuf 布局 (2x2 排列)
+ranks: Rank 内存布局 {
+  grid-rows: 2
+  grid-columns: 2
+
+  r0: Rank 0 recvBuf {
+    grid-rows: 2
+    grid-columns: 4
+    # desc 0 (INT8)
+    d0s0: R0:d0 {style.stroke-dash: 3}
+    d0s1: R1:d0
+    d0s2: R2:d0
+    d0s3: R3:d0
+    # desc 1 (FP32 scale)
+    d1s0: R0:d1 {style.stroke-dash: 3}
+    d1s1: R1:d1
+    d1s2: R2:d1
+    d1s3: R3:d1
+  }
+
+  r1: Rank 1 recvBuf {
+    grid-rows: 2
+    grid-columns: 4
+    d0s0: R0:d0
+    d0s1: R1:d0 {style.stroke-dash: 3}
+    d0s2: R2:d0
+    d0s3: R3:d0
+    d1s0: R0:d1
+    d1s1: R1:d1 {style.stroke-dash: 3}
+    d1s2: R2:d1
+    d1s3: R3:d1
+  }
+
+  r2: Rank 2 recvBuf {
+    grid-rows: 2
+    grid-columns: 4
+    d0s0: R0:d0
+    d0s1: R1:d0
+    d0s2: R2:d0 {style.stroke-dash: 3}
+    d0s3: R3:d0
+    d1s0: R0:d1
+    d1s1: R1:d1
+    d1s2: R2:d1 {style.stroke-dash: 3}
+    d1s3: R3:d1
+  }
+
+  r3: Rank 3 recvBuf {
+    grid-rows: 2
+    grid-columns: 4
+    d0s0: R0:d0
+    d0s1: R1:d0
+    d0s2: R2:d0
+    d0s3: R3:d0 {style.stroke-dash: 3}
+    d1s0: R0:d1
+    d1s1: R1:d1
+    d1s2: R2:d1
+    d1s3: R3:d1 {style.stroke-dash: 3}
+  }
+}
+
+# 通信模式说明
+legend: 虚线框=LocalCopyNb(self-copy)  实线框=WriteNb(来自远端)\n每路独立: WriteNb x(W-1) + LocalCopyNb x1\n数据直达recvBuf, 无中间buffer(零拷贝) {
+  shape: text
+  near: bottom-center
+  style.font-size: 14
+}

@@ -1,0 +1,75 @@
+@startuml class_hierarchy
+!theme plain
+skinparam defaultFontName "Noto Sans CJK SC"
+skinparam shadowing false
+hide circle
+
+package "SDK hcomm" {
+    abstract class CcuKernel {
+        # {abstract} Algorithm() : HcclResult
+        # {abstract} GeneArgs(arg : CcuTaskArg) : vector<uint64_t>
+        # CreateVariable() : Variable
+        # CreateLocalAddr() : LocalAddr
+        # CreateRemoteAddr() : RemoteAddr
+        # WriteNb(channel, rem, loc, len, event)
+        # LocalCopyNb(dst, src, len, event)
+        # PreSync()
+        # PostSync()
+        # Load(rep)
+    }
+
+    class CcuTaskArg << (S,#FF7700) empty >> {
+    }
+
+    class CcuKernelArg {
+        + channels : vector<ChannelHandle>
+        + {abstract} GetKernelSignature() : CcuKernelSignature
+    }
+}
+
+package "custom_comm" {
+    class CcuKernelAllGatherBatchMesh1D {
+        # Algorithm() : HcclResult
+        # GeneArgs(arg : CcuTaskArg) : vector<uint64_t>
+        - Broadcast(src, dsts, size, event)
+    }
+
+    class AllGatherBatchTaskArg {
+        + descCount : uint32_t
+        + rankId : uint32_t
+        + rankSize : uint32_t
+        + descs : HcclAllGatherDesc[8]
+    }
+
+    class AllGatherBatchKernelArg {
+        + rankSize : uint32_t
+        + descCount : uint32_t
+        + GetKernelSignature() : CcuKernelSignature
+    }
+
+    class HcclAllGatherDesc << (S,#FF7700) struct >> {
+        + sendBuf : void*
+        + sendCount : uint64_t
+        + dataType : HcclDataType
+        + recvBuf : void*
+    }
+}
+
+CcuKernel <|-- CcuKernelAllGatherBatchMesh1D
+CcuTaskArg <|-- AllGatherBatchTaskArg
+CcuKernelArg <|-- AllGatherBatchKernelArg
+AllGatherBatchTaskArg *-- "1..8" HcclAllGatherDesc
+
+note right of CcuKernel
+  CCU 微码编程框架基类
+  Algorithm() 定义通信逻辑
+  GeneArgs() 序列化参数为 SQE
+  来源: ccu_kernel.h:42-79
+end note
+
+note bottom of CcuKernelAllGatherBatchMesh1D
+  custom_comm 核心
+  单次 CCU task 完成多路 AllGather
+end note
+
+@enduml

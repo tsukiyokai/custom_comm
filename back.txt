@@ -1,0 +1,13 @@
+这是一个华为自定义通信算子仓，目标是以自定义算子的形式端到端交付昇腾亲和高性能自定义通信算子（例如量化allgather等）。
+
+约束：基于cann9.0.0；当前仅考虑A5(910_95)平台；不区分训练/推理；不侵入式修改PTA或HCCL/HCOMM；支持eager mode；支持入图(aclgraph和GE)；支持profiling和dfx。
+
+参考：
+vllm-project/omniai/omni-ops 昇腾亲和高性能自定义算子，主要是计算算子，没有通信相关算子，可以参考其目录结构。
+torch/torchcomms torchcomms is a new experimental communications API for PyTorch. This provides both the high level collectives API as well as several out of the box backends. 虽然现在没有适配hccl的backend，不过可以看看能不能用它走自定义通信算子路线。
+cann/hccl huawei集合通信库，提供了完整的custom ops开发框架, 包含官方example
+cann/hcomm
+torch/pytorch 原生torch
+torch/torch_npu 也叫pta
+ascend/op-plugin
+ascend/torchair
