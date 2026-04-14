@@ -65,15 +65,18 @@ def main():
 
     ws = world_size
 
-    # Baseline: 3 separate dist.all_gather_into_tensor
-    ox = torch.empty(N * ws, H, dtype=torch.int8, device=device)
-    os_ = torch.empty(N * ws, dtype=torch.float32, device=device)
-    ok = torch.empty(N * ws, K, dtype=torch.int32, device=device)
+    # Baseline: 3 separate AllGather (same pattern as spike benchmark —
+    # allocate output tensor each call, matching real-world usage)
+    def all_gather_one(tensor):
+        out = torch.empty(tensor.shape[0] * ws, *tensor.shape[1:],
+                          dtype=tensor.dtype, device=tensor.device)
+        dist.all_gather_into_tensor(out, tensor)
+        return out
 
     def baseline():
-        dist.all_gather_into_tensor(ox, x)
-        dist.all_gather_into_tensor(os_, s)
-        dist.all_gather_into_tensor(ok, ids)
+        all_gather_one(x)
+        all_gather_one(s)
+        all_gather_one(ids)
 
     # allgather_batch (C API)
     xf = x.contiguous().view(-1)
