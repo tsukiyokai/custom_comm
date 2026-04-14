@@ -65,17 +65,18 @@ def main():
 
     ws = world_size
 
-    # Baseline: 3 separate AllGather via dist.all_gather (list version),
-    # matching real-world omni-npu usage (get_dp_group().all_gather)
-    def all_gather_dim0(tensor):
-        gathered = [torch.empty_like(tensor) for _ in range(ws)]
-        dist.all_gather(gathered, tensor)
-        return torch.cat(gathered, dim=0)
+    # Baseline: 3x all_gather_into_tensor + torch.empty per call
+    # (matches NPUCommunicator.all_gather used in omni-npu)
+    def ag_one(tensor):
+        out = torch.empty(tensor.shape[0] * ws, *tensor.shape[1:],
+                          dtype=tensor.dtype, device=tensor.device)
+        dist.all_gather_into_tensor(out, tensor)
+        return out
 
     def baseline():
-        all_gather_dim0(x)
-        all_gather_dim0(s)
-        all_gather_dim0(ids)
+        ag_one(x)
+        ag_one(s)
+        ag_one(ids)
 
     # allgather_batch (C API)
     xf = x.contiguous().view(-1)
@@ -94,7 +95,7 @@ def main():
         pct = saved / t_base * 100 if t_base > 0 else 0
         print(f"\nOPT-AG-04 Benchmark (Phase1 Decomposed, W={ws})")
         print(f"  N=32, H=7168, K=8 (same as spike)")
-        print(f"  3x dist.all_gather (Python)    : {t_base:8.1f} us")
+        print(f"  3x all_gather_into_tensor      : {t_base:8.1f} us")
         print(f"  1x custom_comm.allgather_batch : {t_batch:8.1f} us")
         print(f"  Speedup                        : {t_base/t_batch:8.2f}x")
         print(f"  Saved                          : {t_base - t_batch:8.1f} us ({pct:.1f}%)")
