@@ -1,0 +1,32 @@
+# Build artifacts
+build/
+*.dylib
+*.so
+*.o
+*.a
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+*.egg
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# CANN SDK symlinks (point into build/)
+.sdk
+torch_ext
+
+# Tool-generated caches
+.cache/
+.pytest_cache/
+.dage/
+
+# OS
+.DS_Store
