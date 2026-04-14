@@ -12,6 +12,10 @@
 
 #ifndef __APPLE__
 #include <acl/acl_prof.h>
+#include <acl/acl_rt.h>
+#include <hccl/hccl_res.h>
+// RT internal: add slave stream to capture graph model
+extern "C" int rtStreamAddToModel(void *stream, void *model);
 #endif
 
 // Phase 1 decomposed strategy (decomposed_strategy.cc)
@@ -90,6 +94,29 @@ static HcclResult HcclAllGatherBatchImpl(
         }
 
         HCCL_CHECK(custom_comm::InitCcuContext(comm));
+
+#ifndef __APPLE__
+        // aclGraph capture: register CCU slave stream into the capture model
+        // so that HcclCcuKernelLaunch operations are recorded into the graph.
+        {
+            aclmdlRICaptureStatus captureStatus = ACL_MODEL_RI_CAPTURE_STATUS_NONE;
+            aclmdlRI rtModel = nullptr;
+            aclError aclRet = aclmdlRICaptureGetInfo(stream, &captureStatus, &rtModel);
+            if (aclRet == ACL_SUCCESS &&
+                captureStatus == ACL_MODEL_RI_CAPTURE_STATUS_ACTIVE && rtModel != nullptr) {
+                uint64_t threadHandle = 0;
+                HCCL_CHECK(custom_comm::GetCcuThreadHandle(comm, &threadHandle));
+                aclrtStream slaveStream = nullptr;
+                uint32_t len = sizeof(slaveStream);
+                HCCL_CHECK(HcclThreadResGetInfo(
+                    comm, threadHandle, THREAD_RES_TYPE_STREAM,
+                    len, reinterpret_cast<void **>(&slaveStream)));
+                if (slaveStream != nullptr) {
+                    rtStreamAddToModel(slaveStream, rtModel);
+                }
+            }
+        }
+#endif
 
         uint32_t rankId = 0;
         HCCL_CHECK(HcclGetRankId(comm, &rankId));

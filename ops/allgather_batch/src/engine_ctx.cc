@@ -132,4 +132,21 @@ HcclResult LaunchCcuKernel(HcclComm comm, const void *taskArg) {
                                 ccuCtx->kernelHandle, *arg);
 }
 
+// ============================================================
+// GetCcuThreadHandle -- expose thread handle for aclGraph capture
+// ============================================================
+
+HcclResult GetCcuThreadHandle(HcclComm comm, uint64_t *threadHandle) {
+    void *ctx = nullptr;
+    uint64_t ctxSize = 0;
+    HCCL_CHECK(HcclEngineCtxGet(comm, CTX_TAG, COMM_ENGINE_CCU,
+                                &ctx, &ctxSize));
+
+    if (ctx == nullptr) return HCCL_E_INTERNAL;
+    auto *ccuCtx = static_cast<CcuContext *>(ctx);
+    if (!ccuCtx || ccuCtx->threadHandle == 0) return HCCL_E_INTERNAL;
+    *threadHandle = ccuCtx->threadHandle;
+    return HCCL_SUCCESS;
+}
+
 }  // namespace custom_comm

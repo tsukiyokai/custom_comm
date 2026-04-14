@@ -29,6 +29,10 @@ HcclResult InitCcuContext(HcclComm comm);
 // Returns HCCL_E_NOT_SUPPORT in Phase 1.
 HcclResult LaunchCcuKernel(HcclComm comm, const void *taskArg);
 
+// Retrieve the CCU thread handle from the cached context.
+// Used by aclGraph capture to get the slave stream via HcclThreadResGetInfo.
+HcclResult GetCcuThreadHandle(HcclComm comm, uint64_t *threadHandle);
+
 }  // namespace custom_comm
 
 #endif  // CUSTOM_COMM_ENGINE_CTX_H_
