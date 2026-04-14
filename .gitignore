@@ -19,9 +19,8 @@ dist/
 *.swo
 *~
 
-# CANN SDK symlinks (point into build/)
+# CANN SDK symlink (points into build/)
 .sdk
-torch_ext
 
 # Tool-generated caches
 .cache/
