@@ -36,7 +36,7 @@ set(_SDK "${ASCEND_CANN_PACKAGE_PATH}")
 
 if(EXISTS "${_SDK}/include/hccl/hccl_types.h")
     # Layout A: installed CANN toolkit
-    set(CANN_INCLUDE_DIRS "${_SDK}/include")
+    set(CANN_INCLUDE_DIRS "${_SDK}/include" "${_SDK}/include/hccl")
     set(CANN_CCU_INCLUDE_DIRS "${_SDK}/pkg_inc")
     set(CANN_ACL_INCLUDE_DIRS "${_SDK}/include")
     set(CANN_LIBRARY_DIRS "${_SDK}/lib64")
