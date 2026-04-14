@@ -79,7 +79,7 @@ class TestMetaKernel:
         assert outs[1].dtype == torch.float32
 
     def test_ag09_meta(self):
-        """OPT-AG-09: INT8 data + FP32 scale + INT32 topk_ids (3 descs)."""
+        """OPT-AG-04: INT8 data + FP32 scale + INT32 topk_ids (3 descs)."""
         data = torch.empty(2048, dtype=torch.int8, device="meta")
         scale = torch.empty(56, dtype=torch.float32, device="meta")
         ids = torch.empty(8, dtype=torch.int32, device="meta")

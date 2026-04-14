@@ -5,7 +5,7 @@
 
 Usage:
     torchrun --nproc_per_node=8 tests/bench_allgather_batch.py
-    torchrun --nproc_per_node=8 tests/bench_allgather_batch.py --ag09
+    torchrun --nproc_per_node=8 tests/bench_allgather_batch.py --ag04
 """
 
 import os
@@ -38,8 +38,8 @@ def timed(fn):
     return (time.perf_counter() - t0) / ITERS * 1e6
 
 
-def bench_ag09(hcom, world_size, device):
-    """OPT-AG-09: INT8(N,H) + FP32(N) + INT32(N,K), 3 AG -> 1."""
+def bench_ag04(hcom, world_size, device):
+    """OPT-AG-04: INT8(N,H) + FP32(N) + INT32(N,K), 3 AG -> 1."""
     N, H, K = 32, 7168, 8
 
     x = torch.randint(0, 127, (N, H), dtype=torch.int8, device=device)
@@ -84,7 +84,7 @@ def bench_homogeneous(hcom, world_size, device):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ag09", action="store_true")
+    parser.add_argument("--ag04", action="store_true")
     parser.add_argument("--local_rank", type=int, default=0)
     args, _ = parser.parse_known_args()
 
@@ -102,11 +102,11 @@ def main():
     hcom = pg._get_backend(device).get_hccl_comm_name(rank)
     phase = "CCU" if os.environ.get("CUSTOM_COMM_USE_CCU") == "1" else "Decomposed"
 
-    if args.ag09:
-        t_base, t_batch = bench_ag09(hcom, world_size, device)
+    if args.ag04:
+        t_base, t_batch = bench_ag04(hcom, world_size, device)
         if rank == 0:
             speedup = t_base / t_batch if t_batch > 0 else 0
-            print(f"\nOPT-AG-09 Benchmark (Phase: {phase}, W={world_size})")
+            print(f"\nOPT-AG-04 Benchmark (Phase: {phase}, W={world_size})")
             print(f"  3x separate AG : {t_base:10.1f} us")
             print(f"  1x allgather_batch : {t_batch:10.1f} us")
             print(f"  Speedup        : {speedup:10.2f}x")
