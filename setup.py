@@ -18,12 +18,17 @@ SDK = os.environ.get(
 #   B) Dev-SDK tree:      ${SDK}/hcomm/hcomm/include/hccl/hccl_types.h
 _hcomm = os.path.join(SDK, "hcomm", "hcomm")
 if os.path.isfile(os.path.join(SDK, "include", "hccl", "hccl_types.h")):
+    # NpuExtension auto-adds torch_npu/include/third_party/acl/inc (ACL headers).
+    # Only add HCCL and pkg_inc here; avoid SDK/include/ to prevent ACL redefinition.
     _inc = [
-        os.path.join(SDK, "include"),
         os.path.join(SDK, "include", "hccl"),
+        os.path.join(SDK, "include", "hcomm"),
         os.path.join(SDK, "pkg_inc"),
     ]
-    _lib = [os.path.join(SDK, "lib64")]
+    _lib = [
+        os.path.join(SDK, "lib64"),
+        os.path.join(SDK, "x86_64-linux", "lib64"),
+    ]
 elif os.path.isfile(os.path.join(_hcomm, "include", "hccl", "hccl_types.h")):
     _inc = [
         os.path.join(_hcomm, "include"),
