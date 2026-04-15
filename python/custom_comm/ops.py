@@ -26,6 +26,12 @@ def allgather_batch(
     if torch.compiler.is_compiling():
         # graph capture / torch.compile -- must go through Dispatcher
         return torch.ops.custom_comm.allgather_batch(inputs, hcom, world_size)
-    # eager inference -- bypass Dispatcher via pybind11 direct call
+    # eager mode: in-place pybind11 path (no Dispatcher, no return marshalling)
     import custom_comm._C as _C
-    return _C.allgather_batch_eager(inputs, hcom, world_size)
+    outputs = [
+        torch.empty([s * world_size if i == 0 else s for i, s in enumerate(t.shape)],
+                     dtype=t.dtype, device=t.device)
+        for t in inputs
+    ]
+    _C.allgather_batch_inplace(inputs, outputs, hcom, world_size)
+    return outputs
