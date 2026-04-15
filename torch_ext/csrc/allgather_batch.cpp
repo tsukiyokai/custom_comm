@@ -224,7 +224,7 @@ TORCH_LIBRARY_IMPL(custom_comm, Meta, m) {
 
 #include <torch/python.h>
 
-// In-place: stack arrays, direct copy (no vector alloc, no from_blob pack).
+// In-place variant: outputs pre-allocated by caller, no return value overhead.
 static void allgather_batch_inplace(
     const std::vector<at::Tensor> &inputs,
     std::vector<at::Tensor> &outputs,
@@ -233,42 +233,33 @@ static void allgather_batch_inplace(
 #ifndef CUSTOM_COMM_NO_NPU
     TORCH_CHECK(!inputs.empty() && inputs.size() == outputs.size());
     TORCH_CHECK(world_size > 0);
-    const size_t n = inputs.size();
     HcclComm comm = GetCachedComm(hcom);
     aclrtStream stream = c10_npu::getCurrentNPUStream().stream(false);
+
     const int64_t N = inputs[0].size(0);
-
-    // Stack-allocated byte widths (max 8 tensors)
-    int64_t bws[MAX_DESC_COUNT];
-    int64_t sum_bw = 0;
-    for (size_t i = 0; i < inputs.size(); ++i) {
-        bws[i] = static_cast<int64_t>(inputs[i].nbytes()) / N;
-        sum_bw += bws[i];
+    std::vector<at::Tensor> byte_views;
+    std::vector<int64_t> bws;
+    for (const auto &inp : inputs) {
+        int64_t bw = static_cast<int64_t>(inp.nbytes()) / N;
+        byte_views.push_back(
+            at::from_blob(inp.data_ptr(), {N, bw},
+                          inp.options().dtype(at::kByte)));
+        bws.push_back(bw);
     }
-
-    // Pack: narrow + copy into contiguous buffer (no from_blob vector + cat)
-    auto opts = inputs[0].options().dtype(at::kByte);
-    auto packed = at::empty({N, sum_bw}, opts);
-    int64_t col = 0;
-    for (size_t i = 0; i < inputs.size(); ++i) {
-        packed.narrow(1, col, bws[i]).copy_(
-            at::from_blob(inputs[i].data_ptr(), {N, bws[i]}, opts));
-        col += bws[i];
-    }
-
-    // AllGather
-    auto gathered = at::empty({N * world_size, sum_bw}, opts);
+    auto packed = at::cat(byte_views, 1);
+    auto gathered = at::empty({N * world_size, packed.size(1)},
+                              packed.options());
     HCCL_TORCH_CHECK(HcclAllGather(
         packed.data_ptr(), gathered.data_ptr(),
         static_cast<uint64_t>(packed.numel()),
         HCCL_DATA_TYPE_UINT8, comm, stream));
 
-    // Unpack: copy columns into pre-allocated output tensors
-    col = 0;
+    int64_t col = 0;
     for (size_t i = 0; i < inputs.size(); ++i) {
-        at::from_blob(outputs[i].data_ptr(),
-                      {N * world_size, bws[i]}, opts)
-            .copy_(gathered.narrow(1, col, bws[i]));
+        auto src = gathered.narrow(1, col, bws[i]);
+        at::from_blob(outputs[i].data_ptr(), {N * world_size, bws[i]},
+                      gathered.options())
+            .copy_(src);
         col += bws[i];
     }
 #endif
