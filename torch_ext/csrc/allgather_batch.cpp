@@ -8,6 +8,8 @@
 #include <ATen/ATen.h>
 #include <ATen/record_function.h>
 #include <c10/util/StringUtil.h>
+#include <mutex>
+#include <unordered_map>
 
 #include "hccl_custom_allgather_batch.h"
 #include "common.h"
@@ -31,10 +33,44 @@ HcclResult HcomGetCommHandleByGroup(const char *group, HcclComm *commHandle);
 #endif
 
 // ============================================================
-// PyTorch ScalarType -> HcclDataType mapping
+// Torch error-checking macro for HCCL calls
+// ============================================================
+
+#define HCCL_TORCH_CHECK(call)                                      \
+    do {                                                            \
+        HcclResult _ret = (call);                                   \
+        TORCH_CHECK(_ret == HCCL_SUCCESS,                           \
+            "HCCL error: ", static_cast<int>(_ret),                 \
+            " at ", __FILE__, ":", __LINE__);                        \
+    } while (0)
+
+// ============================================================
+// Comm handle cache + dtype mapping
 // ============================================================
 
 namespace {
+
+HcclComm GetCachedComm(c10::string_view group) {
+    static std::mutex mu;
+    static std::unordered_map<std::string, HcclComm> cache;
+
+    std::string key(group.data(), group.size());
+    {
+        std::lock_guard<std::mutex> lk(mu);
+        auto it = cache.find(key);
+        if (it != cache.end()) return it->second;
+    }
+    HcclComm comm = nullptr;
+    HCCL_TORCH_CHECK(
+        HcomGetCommHandleByGroup(key.c_str(), &comm));
+    TORCH_CHECK(comm != nullptr,
+                "Failed to get HcclComm for group: ", key);
+    {
+        std::lock_guard<std::mutex> lk(mu);
+        cache[key] = comm;
+    }
+    return comm;
+}
 
 HcclDataType ScalarTypeToHcclDtype(c10::ScalarType st) {
     switch (st) {
@@ -58,18 +94,6 @@ HcclDataType ScalarTypeToHcclDtype(c10::ScalarType st) {
 }  // namespace
 
 // ============================================================
-// Torch error-checking macro for HCCL calls
-// ============================================================
-
-#define HCCL_TORCH_CHECK(call)                                      \
-    do {                                                            \
-        HcclResult _ret = (call);                                   \
-        TORCH_CHECK(_ret == HCCL_SUCCESS,                           \
-            "HCCL error: ", static_cast<int>(_ret),                 \
-            " at ", __FILE__, ":", __LINE__);                        \
-    } while (0)
-
-// ============================================================
 // PrivateUse1 (NPU device) implementation
 // ============================================================
 
@@ -89,17 +113,16 @@ static std::vector<at::Tensor> allgather_batch_npu(
 
     const uint32_t descCount = static_cast<uint32_t>(inputs.size());
 
-    // 1. Resolve hcom group name -> HcclComm handle
-    HcclComm comm = nullptr;
-    std::string hcom_str(hcom.data(), hcom.size());
-    HCCL_TORCH_CHECK(HcomGetCommHandleByGroup(hcom_str.c_str(), &comm));
-    TORCH_CHECK(comm != nullptr, "Failed to get HcclComm for group: ", hcom_str);
+    // 1. Resolve hcom group name -> HcclComm handle (cached after first call)
+    HcclComm comm = GetCachedComm(hcom);
 
     // 2. Get current NPU stream
     aclrtStream stream = c10_npu::getCurrentNPUStream().stream(false);
 
     // 3. Pack tensors as uint8 rows, cat, single AllGather, split back.
-    //    This avoids aclrtMalloc/Free overhead in the C API decomposed path.
+    //    Uses PyTorch caching allocator (no aclrtMalloc/Free per call).
+    //    Unpack: narrow(dim=1) is non-contiguous, so .contiguous() copies
+    //    each output tensor on device (not zero-copy).
     const int64_t N = inputs[0].size(0);
     std::vector<at::Tensor> byte_views;
     std::vector<int64_t> byte_widths;
