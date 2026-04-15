@@ -114,9 +114,8 @@ def main():
             bar = "\u2588" * int(us / mx * 30)
             print(f"  {label:<{W}} {us:8.1f} us  {bar}")
         print()
-        print(f"  D vs E (Dispatcher overhead):  {td - te:+.1f} us")
-        print(f"  E vs C (remaining C++ tax):    {te - tc:+.1f} us")
-        print(f"  D vs B (total speedup):        {tb/td:.2f}x")
+        print(f"  E vs B:  {tb/te:.2f}x  (saved {tb - te:.0f} us)")
+        print(f"  D vs E:  {td - te:+.1f} us  (Dispatcher overhead)")
 
     dist.destroy_process_group()
 

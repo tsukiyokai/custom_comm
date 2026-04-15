@@ -59,7 +59,12 @@ Python extension (requires CANN SDK + torch_npu):
 Blue zone is for compilation and meta tests (no NPU hardware).
 NPU functional tests run on yellow zone separately.
 
-Workflow: edit locally -> sync to blue zone -> build -> run meta tests -> commit.
+    workflow:
+        local edit
+            -> rsync
+                -> build on blue zone
+                    -> pytest meta
+                        -> commit & push
 
     # 1. Sync local changes to blue zone
     rsync -avz --exclude='build/' --exclude='*.so' --exclude='__pycache__' \
