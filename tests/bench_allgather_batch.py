@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 custom_comm authors. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""5-way AG benchmark for OPT-AG-04.
+"""4-way AG benchmark for OPT-AG-04.
 
-  A)  3x dist.all_gather            (list API)
-  B)  3x all_gather_into_tensor     (baseline)
-  C1) 1x packed AG, no unpack       (pack + gather only)
-  C2) 1x packed AG + unpack         (full round-trip, fair comparison to D)
-  D)  custom_comm.allgather_batch   (C API, Phase 1)
+  A) 3x dist.all_gather            (list API)
+  B) 3x all_gather_into_tensor     (baseline)
+  C) 1x packed AG + unpack          (Python reference)
+  D) custom_comm.allgather_batch   (C API, Phase 1)
 
 Usage:
     torchrun --nproc_per_node=8 tests/bench_allgather_batch.py
@@ -57,7 +56,7 @@ def main():
     tensors = [x, s, ids]
     bws = [t.nbytes // N for t in tensors]  # bytes per row
 
-    # Pre-compute uint8 views for C1/C2
+    # Pre-compute uint8 views for C
     u8_views = [t.reshape(N, -1).contiguous().view(torch.uint8) for t in tensors]
 
     # ── A) 3x dist.all_gather (list API) ────────────────────────
@@ -72,14 +71,8 @@ def main():
             out = torch.empty(N * ws, *t.shape[1:], dtype=t.dtype, device=dev)
             dist.all_gather_into_tensor(out, t)
 
-    # ── C1) packed AG, no unpack ────────────────────────────────
-    def method_c1():
-        packed = torch.cat(u8_views, dim=1)
-        out = torch.empty(N * ws, packed.shape[1], dtype=torch.uint8, device=dev)
-        dist.all_gather_into_tensor(out, packed)
-
-    # ── C2) packed AG + unpack (fair comparison to D) ───────────
-    def method_c2():
+    # ── C) packed AG + unpack (Python reference) ────────────────
+    def method_c():
         packed = torch.cat(u8_views, dim=1)
         out = torch.empty(N * ws, packed.shape[1], dtype=torch.uint8, device=dev)
         dist.all_gather_into_tensor(out, packed)
@@ -95,19 +88,17 @@ def main():
     def method_d():
         torch.ops.custom_comm.allgather_batch(tensors, hcom, ws)
 
-    ta  = timed(method_a)
-    tb  = timed(method_b)
-    tc1 = timed(method_c1)
-    tc2 = timed(method_c2)
-    td  = timed(method_d)
+    ta = timed(method_a)
+    tb = timed(method_b)
+    tc = timed(method_c)
+    td = timed(method_d)
 
     if rank == 0:
         W = 36
-        results = [("A) 3x all_gather (list)",       ta),
-                   ("B) 3x all_gather_into_tensor",   tb),
-                   ("C1) packed AG (no unpack)",       tc1),
-                   ("C2) packed AG + unpack",          tc2),
-                   ("D) allgather_batch (C API)",      td)]
+        results = [("A) 3x all_gather (list)",      ta),
+                   ("B) 3x all_gather_into_tensor",  tb),
+                   ("C) Python packed AG + unpack",   tc),
+                   ("D) allgather_batch (C API)",     td)]
         mx = max(v for _, v in results)
         print(f"\nOPT-AG-04 Benchmark  W={ws}  N={N}")
         print("-" * 60)
@@ -115,8 +106,8 @@ def main():
             bar = "\u2588" * int(us / mx * 30)
             print(f"  {label:<{W}} {us:8.1f} us  {bar}")
         print()
-        print(f"  C2 vs D:  {tc2/td:.2f}x  (delta {td - tc2:+.1f} us)")
-        print(f"  D  vs B:  {tb/td:.2f}x  (saved {tb - td:.0f} us)")
+        print(f"  C vs D:  {tc/td:.2f}x  (delta {td - tc:+.1f} us)")
+        print(f"  D vs B:  {tb/td:.2f}x  (saved {tb - td:.0f} us)")
 
     dist.destroy_process_group()
 
