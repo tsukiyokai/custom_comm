@@ -1,16 +1,18 @@
 # Copyright (c) 2026 custom_comm Authors. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Benchmark: allgather_batch vs N separate AllGather calls.
+"""4-way benchmark: compare AllGather strategies.
+
+  A) 3x dist.all_gather (list API, allocates per call)
+  B) 3x dist.all_gather_into_tensor (NPUCommunicator pattern)
+  C) Python packed: view-as-uint8 + cat + single AG (spike approach)
+  D) custom_comm.allgather_batch (C API)
 
 Usage:
-    torchrun --nproc_per_node=8 tests/bench_allgather_batch.py --ag04
+    torchrun --nproc_per_node=8 tests/bench_allgather_batch.py
 """
 
-import os
 import time
-import argparse
-
 import torch
 import torch.distributed as dist
 
@@ -39,66 +41,72 @@ def timed(fn):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--local_rank", type=int, default=0)
-    parser.add_argument("--ag04", action="store_true")
-    args = parser.parse_args()
-
     if not HAS_NPU:
         print("NPU not available")
         return
 
     dist.init_process_group(backend="hccl")
     rank = dist.get_rank()
-    world_size = dist.get_world_size()
+    ws = dist.get_world_size()
     device = torch.device(f"npu:{rank}")
     torch.npu.set_device(device)
 
-    pg = torch.distributed.group.WORLD
+    pg = dist.distributed_c10d._get_default_group()
     hcom = pg._get_backend(device).get_hccl_comm_name(rank)
-    phase = "CCU" if os.environ.get("CUSTOM_COMM_USE_CCU") == "1" else "Decomposed"
 
+    # OPT-AG-04: INT8(N,H) + FP32(N,) + INT32(N,K)
     N, H, K = 32, 7168, 8
-    x = torch.randint(0, 127, (N, H), dtype=torch.int8, device=device)
-    s = torch.randn(N, dtype=torch.float32, device=device)
-    ids = torch.randint(0, 8, (N, K), dtype=torch.int32, device=device)
+    x = torch.randint(0, 127, (N, H), dtype=torch.int8, device="npu")
+    s = torch.randn(N, dtype=torch.float32, device="npu")
+    ids = torch.randint(0, 8, (N, K), dtype=torch.int32, device="npu")
+    ws_ = dist.get_world_size()
 
-    ws = world_size
+    # ---- A: 3x dist.all_gather (list API) ----
+    def method_a():
+        for t in [x, s, ids]:
+            out = [torch.empty_like(t) for _ in range(ws_)]
+            dist.all_gather(out, t)
 
-    # Baseline: 3x all_gather_into_tensor + torch.empty per call
-    # (matches NPUCommunicator.all_gather used in omni-npu)
-    def ag_one(tensor):
-        out = torch.empty(tensor.shape[0] * ws, *tensor.shape[1:],
-                          dtype=tensor.dtype, device=tensor.device)
-        dist.all_gather_into_tensor(out, tensor)
-        return out
+    # ---- B: 3x all_gather_into_tensor (matching NPUCommunicator) ----
+    def method_b():
+        for t in [x, s, ids]:
+            out = torch.empty(t.shape[0] * ws_, *t.shape[1:],
+                              dtype=t.dtype, device=t.device)
+            dist.all_gather_into_tensor(out, t)
 
-    def baseline():
-        ag_one(x)
-        ag_one(s)
-        ag_one(ids)
+    # ---- C: Python packed (spike approach) ----
+    def method_c():
+        tensors = [x, s, ids]
+        n = tensors[0].shape[0]
+        bv = [t.reshape(n, -1).contiguous().view(torch.uint8) for t in tensors]
+        packed = torch.cat(bv, dim=1)
+        out = torch.empty(n * ws_, packed.shape[1],
+                          dtype=torch.uint8, device=packed.device)
+        dist.all_gather_into_tensor(out, packed)
 
-    # allgather_batch (C API)
-    xf = x.contiguous().view(-1)
-    sf = s.contiguous().view(-1)
-    kf = ids.contiguous().view(-1)
+    # ---- D: custom_comm.allgather_batch (C API) ----
+    xf = x.reshape(-1)
+    sf = s.reshape(-1)
+    idf = ids.reshape(-1)
 
-    def batched():
-        torch.ops.custom_comm.allgather_batch([xf, sf, kf], hcom, ws)
+    def method_d():
+        torch.ops.custom_comm.allgather_batch([xf, sf, idf], hcom, ws_)
 
-    t_base = timed(baseline)
-    t_batch = timed(batched)
+    ta = timed(method_a)
+    tb = timed(method_b)
+    tc = timed(method_c)
+    td = timed(method_d)
 
     if rank == 0:
-        speedup = t_base / t_batch if t_batch > 0 else 0
-        saved = t_base - t_batch
-        pct = saved / t_base * 100 if t_base > 0 else 0
-        print(f"\nOPT-AG-04 Benchmark (Phase1 Decomposed, W={ws})")
-        print(f"  N=32, H=7168, K=8 (same as spike)")
-        print(f"  3x all_gather_into_tensor      : {t_base:8.1f} us")
-        print(f"  1x custom_comm.allgather_batch : {t_batch:8.1f} us")
-        print(f"  Speedup                        : {t_base/t_batch:8.2f}x")
-        print(f"  Saved                          : {t_base - t_batch:8.1f} us ({pct:.1f}%)")
+        print(f"\nOPT-AG-04 Benchmark (W={ws}, N={N}, H={H}, K={K})")
+        print(f"  A) 3x dist.all_gather (list)        : {ta:8.1f} us")
+        print(f"  B) 3x all_gather_into_tensor         : {tb:8.1f} us")
+        print(f"  C) 1x Python packed AG               : {tc:8.1f} us")
+        print(f"  D) 1x custom_comm.allgather_batch    : {td:8.1f} us")
+        print()
+        print(f"  D vs A speedup: {ta/td:.2f}x")
+        print(f"  D vs B speedup: {tb/td:.2f}x")
+        print(f"  C vs A speedup: {ta/tc:.2f}x")
 
     dist.destroy_process_group()
 
