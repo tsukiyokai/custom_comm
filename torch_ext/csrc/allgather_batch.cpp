@@ -97,7 +97,7 @@ HcclDataType ScalarTypeToHcclDtype(c10::ScalarType st) {
 // PrivateUse1 (NPU device) implementation
 // ============================================================
 
-static std::vector<at::Tensor> allgather_batch_npu(
+std::vector<at::Tensor> allgather_batch_npu(
     const std::vector<at::Tensor> &inputs,
     c10::string_view hcom,
     int64_t world_size) {
@@ -201,4 +201,15 @@ TORCH_LIBRARY_IMPL(custom_comm, PrivateUse1, m) {
 
 TORCH_LIBRARY_IMPL(custom_comm, Meta, m) {
     m.impl("allgather_batch", &allgather_batch_meta);
+}
+
+// ============================================================
+// pybind11 direct entry (bypasses Dispatcher for eager mode)
+// ============================================================
+
+#include <torch/python.h>
+
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+    m.def("allgather_batch_eager", &allgather_batch_npu,
+          "allgather_batch via direct pybind11 call (no Dispatcher)");
 }
