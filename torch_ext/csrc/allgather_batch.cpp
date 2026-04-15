@@ -19,17 +19,15 @@
 
 extern "C" {
 HcclResult HcomGetCommHandleByGroup(const char *group, HcclComm *commHandle);
-HcclResult HcclAllGather(const void *sendBuf, void *recvBuf,
-                         uint64_t sendCount, HcclDataType dataType,
-                         HcclComm comm, aclrtStream stream);
 }
 
 // ============================================================
 // torch_npu stream API (provided by torch_npu headers via NpuExtension)
 // ============================================================
 
-#ifndef CUSTOM_COMM_NO_NPU  // macOS syntax-check: guard NPU-specific headers
+#ifndef CUSTOM_COMM_NO_NPU
 #include "torch_npu/csrc/core/npu/NPUStream.h"
+#include <hccl/hccl.h>  // for HcclAllGather
 #endif
 
 // ============================================================
