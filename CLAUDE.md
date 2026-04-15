@@ -54,6 +54,32 @@ Python extension (requires CANN SDK + torch_npu):
     pytest tests/ -v                   # All available tests
     torchrun --nproc_per_node=N pytest tests/  # NPU functional (needs hardware)
 
+## Blue Zone (Remote Build)
+
+Blue zone is for compilation and meta tests (no NPU hardware).
+NPU functional tests run on yellow zone separately.
+
+Workflow: edit locally -> sync to blue zone -> build -> run meta tests -> commit.
+
+    # 1. Sync local changes to blue zone
+    rsync -avz --exclude='build/' --exclude='*.so' --exclude='__pycache__' \
+        ./ bluezone:~/code/custom_comm/
+
+    # 2. SSH in and build
+    ssh bluezone
+    source ~/Ascend/cann-9.0.0/set_env.sh
+    source ~/venv/bin/activate
+    cd ~/code/custom_comm && pip install -e . --no-build-isolation
+
+    # 3. Run non-NPU tests
+    pytest tests/ -k meta
+
+Connection and environment:
+- Host alias: `bluezone` (in ~/.ssh/config)
+- CANN SDK: ~/Ascend/cann-9.0.0 (do NOT use /usr/local/Ascend, that is an older version)
+- Python venv: ~/venv (has torch 2.x + torch_npu)
+- Code path: ~/code/custom_comm/
+
 ## Key Constraints
 
 - CANN 9.0 SDK required (headers in `include/hccl/`, `pkg_inc/`, runtime in `x86_64-linux/lib64/`)
