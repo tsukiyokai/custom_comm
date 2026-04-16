@@ -17,8 +17,8 @@ and INT32 routing indices must be gathered together.
 ## Prerequisites
 
 - Ascend NPU with CANN 9.0+ toolkit (Atlas A5 / Ascend 950)
-- PyTorch 2.6 or later
-- torch_npu 2.6 or later
+- PyTorch 2.9 (see requirements.txt)
+- torch_npu 2.9
 - Python 3.10+
 
 ## Installation
@@ -27,6 +27,7 @@ and INT32 routing indices must be gathered together.
 
 ```bash
 source ~/Ascend/set_env.sh
+pip install -r requirements.txt
 pip install -e .
 ```
 

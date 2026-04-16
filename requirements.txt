@@ -1,4 +1,13 @@
-torch>=2.6
-torch_npu>=2.6
-pyyaml
-numpy
+# Runtime
+torch==2.9.0
+torch_npu==2.9.0
+numpy==2.4.4
+
+# Test
+pytest
+
+# Optional: graph mode (torchair, bundled with torch_npu)
+
+# Build (not pip-installable):
+#   CANN SDK 9.0
+#   C++17 compiler
