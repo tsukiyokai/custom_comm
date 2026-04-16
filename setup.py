@@ -18,13 +18,15 @@ SDK = os.environ.get(
 #   B) Dev-SDK tree:      ${SDK}/hcomm/hcomm/include/hccl/hccl_types.h
 _hcomm = os.path.join(SDK, "hcomm", "hcomm")
 if os.path.isfile(os.path.join(SDK, "include", "hccl", "hccl_types.h")):
-    # SDK/include is needed for hccl/hccl_comm.h (not bundled in torch_npu).
-    # NpuExtension also injects torch_npu's own ACL/HCCL headers, but ours
-    # come first in the search order.  Our header (hccl_custom_allgather_batch.h)
-    # forward-declares aclrtStream to avoid pulling in acl_base_rt.h.
-    _inc = [
+    # NpuExtension injects torch_npu's bundled HCCL headers via -I.
+    # We must NOT add SDK/include as -I — it shadows torch_npu's hccl_types.h
+    # (different enum names across versions → build error).  Instead, add SDK
+    # headers as -isystem so they rank below torch_npu's -I paths.  This way
+    # hccl_comm.h / hccl_inner.h (not bundled in torch_npu) are still found.
+    _sdk_isystem = [
         os.path.join(SDK, "include"),
-        os.path.join(SDK, "include", "hccl"),
+    ]
+    _inc = [
         os.path.join(SDK, "pkg_inc"),
     ]
     _lib = [
@@ -32,15 +34,17 @@ if os.path.isfile(os.path.join(SDK, "include", "hccl", "hccl_types.h")):
         os.path.join(SDK, "x86_64-linux", "lib64"),
     ]
 elif os.path.isfile(os.path.join(_hcomm, "include", "hccl", "hccl_types.h")):
-    _inc = [
+    _sdk_isystem = [
         os.path.join(_hcomm, "include"),
-        os.path.join(_hcomm, "include", "hccl"),
+    ]
+    _inc = [
         os.path.join(_hcomm, "pkg_inc"),
         os.path.join(SDK, "npu-runtime", "include", "external"),
     ]
     _lib = [os.path.join(_hcomm, "lib64"), os.path.join(SDK, "lib64")]
 else:
     _inc = []
+    _sdk_isystem = []
     _lib = []
 
 # ==== Extension (requires torch + torch_npu) ====
@@ -95,7 +99,8 @@ try:
         ],
         library_dirs=_lib,
         libraries=["hcomm", "ascendcl"] if _lib else [],
-        extra_compile_args=["-std=c++17"],
+        extra_compile_args=["-std=c++17"]
+            + [f for d in _sdk_isystem for f in ("-isystem", d)],
         define_macros=[(k, v) for k, v in _extra_macros],
     )]
     cmdclass = {"build_ext": BuildExtension}

@@ -15,9 +15,18 @@
 #include "common.h"
 
 #include <hccl/hccl_types.h>
-#include <hccl/hccl_comm.h>
-#include <hccl/hccl_inner.h>
 #include <acl/acl_rt.h>
+
+// Forward-declare internal HCCL APIs instead of #include <hccl/hccl_comm.h>
+// and <hccl/hccl_inner.h>. Those SDK headers pull in hccl_types.h from the
+// CANN toolkit, which may conflict with the version bundled in torch_npu
+// (different struct layouts / enum values behind the same include guard).
+extern "C" {
+HcclResult HcclGetRankSize(HcclComm comm, uint32_t *rankSize);
+HcclResult HcclAllGatherInner(const void *sendBuf, void *recvBuf,
+                              uint64_t count, HcclDataType dataType,
+                              HcclComm comm, aclrtStream stream);
+}
 
 #include <cstdint>
 #include <vector>

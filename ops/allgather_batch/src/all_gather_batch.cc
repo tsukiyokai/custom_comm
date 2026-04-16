@@ -8,15 +8,16 @@
 #include "ccu/engine_ctx.h"
 #endif
 
-#include <hccl/hccl_comm.h>
-
 #include <cstdlib>
 #include <cstring>
 
 #ifndef __APPLE__
 #include <acl/acl_prof.h>
 #include <acl/acl_rt.h>
+#ifdef CUSTOM_COMM_ENABLE_CCU
+#include <hccl/hccl_comm.h>
 #include <hccl/hccl_res.h>
+#endif  // CUSTOM_COMM_ENABLE_CCU
 // RT internal: add slave stream to capture graph model
 extern "C" int rtStreamAddToModel(void *stream, void *model);
 #endif
