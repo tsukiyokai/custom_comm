@@ -18,6 +18,7 @@
 #include <hcomm/ccu/hccl_ccu_res.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <vector>
 
 namespace custom_comm {
@@ -120,13 +121,15 @@ HcclResult InitCcuContext(HcclComm comm) {
 // ============================================================
 
 HcclResult LaunchCcuKernel(HcclComm comm, const void *taskArg) {
+    auto *arg = static_cast<const AllGatherBatchTaskArg *>(taskArg);
+    fprintf(stderr, "[custom_comm][CCUv1] LaunchCcuKernel descCount=%u rank=%u/%u\n",
+            arg ? arg->descCount : 0, arg ? arg->rankId : 0, arg ? arg->rankSize : 0);
     void *ctx = nullptr;
     uint64_t ctxSize = 0;
     HCCL_CHECK(HcclEngineCtxGet(comm, CTX_TAG, COMM_ENGINE_CCU,
                                 &ctx, &ctxSize));
 
     auto *ccuCtx = static_cast<CcuContext *>(ctx);
-    auto *arg    = static_cast<const AllGatherBatchTaskArg *>(taskArg);
 
     return LaunchBatchedAGKernel(comm, ccuCtx->threadHandle,
                                 ccuCtx->kernelHandle, *arg);
