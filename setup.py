@@ -52,22 +52,33 @@ try:
     from torch_npu.utils.cpp_extension import NpuExtension
     from torch.utils.cpp_extension import BuildExtension
 
+    # Strategy sources: decomposed is always included; CCU is optional.
+    _agb_sources = [
+        "ops/allgather_batch/src/all_gather_batch.cc",
+        "ops/allgather_batch/src/decomposed/decomposed_strategy.cc",
+    ]
+    _extra_macros = []
+    if os.environ.get("CUSTOM_COMM_ENABLE_CCU", "0") == "1":
+        _agb_sources += [
+            "ops/allgather_batch/src/ccu/engine_ctx.cc",
+            "ops/allgather_batch/src/ccu/ccu_kernel_ag_batch_mesh1d.cc",
+        ]
+        _extra_macros.append(("CUSTOM_COMM_ENABLE_CCU", "1"))
+
     ext_modules = [NpuExtension(
         name="custom_comm._C",
         sources=[
             "torch_ext/csrc/ops_registration.cpp",
             "torch_ext/csrc/allgather_batch.cpp",
-            "ops/allgather_batch/src/all_gather_batch.cc",
-            "ops/allgather_batch/src/decomposed_strategy.cc",
-            "ops/allgather_batch/src/engine_ctx.cc",
-            "ops/allgather_batch/src/ccu_kernel_ag_batch_mesh1d.cc",
-        ],
+        ] + _agb_sources,
         include_dirs=_inc + [
             os.path.join(os.path.dirname(__file__), "ops", "allgather_batch", "inc"),
+            os.path.join(os.path.dirname(__file__), "ops", "allgather_batch", "src"),
         ],
         library_dirs=_lib,
         libraries=["hcomm", "ascendcl"] if _lib else [],
         extra_compile_args=["-std=c++17"],
+        define_macros=[(k, v) for k, v in _extra_macros],
     )]
     cmdclass = {"build_ext": BuildExtension}
 except ImportError:
