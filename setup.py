@@ -65,6 +65,21 @@ try:
         ]
         _extra_macros.append(("CUSTOM_COMM_ENABLE_CCU", "1"))
 
+    if os.environ.get("CUSTOM_COMM_ENABLE_CCU_V2", "") == "1":
+        _ccu_v2 = "ops/allgather_batch/src/ccu_v2"
+        _agb_sources += [
+            os.path.join(_ccu_v2, "op_host", "launch_kernel.cc"),
+            os.path.join(_ccu_v2, "op_host", "host_utils.cc"),
+            os.path.join(_ccu_v2, "op_kernel", "ccu_kernel_all_gather_batch_mesh1d.cc"),
+        ]
+        # CCU v2 needs hcomm/ccu headers from SDK
+        # Scarlett's code uses bare includes like #include "ccu_kernel.h"
+        # which live under pkg_inc/hcomm/ccu/ in the SDK.
+        for _sub in ["hcomm", "hcomm/ccu"]:
+            _inc.append(os.path.join(SDK, "pkg_inc", _sub))
+            _inc.append(os.path.join(SDK, "x86_64-linux", "pkg_inc", _sub))
+        _extra_macros.append(("CUSTOM_COMM_ENABLE_CCU_V2", "1"))
+
     ext_modules = [NpuExtension(
         name="custom_comm._C",
         sources=[
@@ -74,6 +89,7 @@ try:
         include_dirs=_inc + [
             os.path.join(os.path.dirname(__file__), "ops", "allgather_batch", "inc"),
             os.path.join(os.path.dirname(__file__), "ops", "allgather_batch", "src"),
+            os.path.join(os.path.dirname(__file__), "ops", "allgather_batch", "src", "ccu_v2", "inc"),
         ],
         library_dirs=_lib,
         libraries=["hcomm", "ascendcl"] if _lib else [],
