@@ -1,43 +1,24 @@
 # Copyright (c) 2026 custom_comm Authors. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for allgather_batch operator.
+"""Eager-mode tests for the allgather_batch operator.
 
-Test layers:
-  - Meta kernel: shape inference on CPU, no NPU needed.
-  - NPU functional (Phase 1): eager mode with decomposed strategy.
-  - NPU functional (Phase 2): eager mode with CCU kernel (CUSTOM_COMM_USE_CCU=1).
-  - Benchmark scenarios: OPT-AG-09, OPT-AG-04 workloads.
+Layered as:
+  TestMetaKernel     — Meta-dispatch shape inference (no NPU)
+  TestNpuFunctional  — Phase 1 decomposed HCCL path (needs NPU + torchrun)
+  TestCcuPath        — Phase 2 CCU kernel path (needs NPU + torchrun, CUSTOM_COMM_USE_CCU=1)
+
+Graph-mode counterpart: ./test_graph.py
+Performance numbers:    ./bench.py
 
 Usage:
-  pytest tests/ -k "meta"                      # meta tests only
-  torchrun --nproc_per_node=N pytest tests/     # full NPU tests
+  pytest tests/                                         # runs meta-only (others auto-skip)
+  torchrun --nproc_per_node=N -m pytest tests/          # full eager suite
 """
 
 import os
 import pytest
 import torch
-
-# ============================================================
-# Setup
-# ============================================================
-
-HAS_NPU = False
-try:
-    import torch_npu  # noqa: F401
-    HAS_NPU = torch.npu.is_available() if hasattr(torch.npu, "is_available") else False
-except ImportError:
-    pass
-
-HAS_EXT = False
-try:
-    import custom_comm  # noqa: F401
-    HAS_EXT = True
-except ImportError:
-    pass
-
-requires_npu = pytest.mark.skipif(not HAS_NPU, reason="NPU device not available")
-requires_ext = pytest.mark.skipif(not HAS_EXT, reason="custom_comm extension not installed")
 
 DTYPES = [torch.int8, torch.float16, torch.float32, torch.bfloat16]
 
@@ -52,7 +33,7 @@ def make_input(shape, dtype, device="meta"):
 # Meta kernel tests (no NPU required)
 # ============================================================
 
-@requires_ext
+@pytest.mark.ext
 class TestMetaKernel:
     """Shape inference via Meta dispatch. Runs anywhere."""
 
@@ -113,27 +94,9 @@ class TestMetaKernel:
 # NPU functional tests (require device + multi-rank)
 # ============================================================
 
-requires_npu = pytest.mark.skipif(not HAS_NPU, reason="No NPU device")
-requires_ext_mark = pytest.mark.skipif(not HAS_EXT, reason="custom_comm not built")
-
-HAS_NPU = False
-HAS_EXT = False
-try:
-    import torch_npu
-    HAS_NPU = torch.npu.is_available()
-except ImportError:
-    pass
-try:
-    import custom_comm  # noqa: F401
-    HAS_EXT = True
-except ImportError:
-    pass
-
-requires_npu = pytest.mark.skipif(not HAS_NPU, reason="NPU device not available")
-requires_ext = pytest.mark.skipif(not HAS_EXT, reason="custom_comm extension not built")
-
-
-@requires_npu
+@pytest.mark.npu
+@pytest.mark.ext
+@pytest.mark.dist
 class TestNpuFunctional:
     """Phase 1 (decomposed) eager-mode correctness on NPU.
 
@@ -141,15 +104,11 @@ class TestNpuFunctional:
     """
 
     @pytest.fixture(autouse=True)
-    def setup(self):
-        if not torch.distributed.is_initialized():
-            pytest.skip("dist not initialized")
-        self.rank = torch.distributed.get_rank()
-        self.world_size = torch.distributed.get_world_size()
-        self.device = torch.device(f"npu:{self.rank}")
-        torch.npu.set_device(self.device)
-        pg = torch.distributed.group.WORLD
-        self.hcom = pg._get_backend(self.device).get_hccl_comm_name(self.rank)
+    def _bind(self, dist_ctx):
+        self.rank = dist_ctx.rank
+        self.world_size = dist_ctx.world_size
+        self.device = dist_ctx.device
+        self.hcom = dist_ctx.hcom
 
     # ---- basic correctness ----
 
@@ -195,21 +154,18 @@ class TestNpuFunctional:
 # CCU path tests (Phase 2, CUSTOM_COMM_USE_CCU=1)
 # ============================================================
 
-@requires_npu
+@pytest.mark.npu
+@pytest.mark.ext
+@pytest.mark.dist
 class TestCcuPath:
-    """Phase 2 CCU kernel correctness. Run with CUSTOM_COMM_USE_CCU=1."""
+    """Phase 2 CCU kernel tests. Run with CUSTOM_COMM_USE_CCU=1."""
 
     @pytest.fixture(autouse=True)
-    def setup_dist(self):
-        # same distributed setup
-        if not torch.distributed.is_initialized():
-            pytest.skip("dist not init")
-        self.rank = torch.distributed.get_rank()
-        self.world_size = torch.distributed.get_world_size()
-        torch.npu.set_device(self.rank)
-        pg = torch.distributed.group.WORLD
-        self.hcom = pg._get_backend(torch.device(f"npu:{self.rank}")).get_hccl_comm_name(self.rank)
-        self.device = f"npu:{self.rank}"
+    def _bind(self, dist_ctx):
+        self.rank = dist_ctx.rank
+        self.world_size = dist_ctx.world_size
+        self.device = dist_ctx.device
+        self.hcom = dist_ctx.hcom
 
     def test_ccu_matches_decomposed(self):
         """CCU output must match decomposed output bit-exactly."""

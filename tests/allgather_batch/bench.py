@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 custom_comm authors. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Benchmark: compare AllGather strategies.
+"""Benchmark: compare AllGather strategies for allgather_batch.
 
-    torchrun --nproc_per_node=8 tests/bench_allgather_batch.py
+    torchrun --nproc_per_node=8 tests/allgather_batch/bench.py
 """
 import torch, torch.distributed as dist
 

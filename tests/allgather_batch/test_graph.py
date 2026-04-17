@@ -1,51 +1,29 @@
 # Copyright (c) 2026 custom_comm Authors. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for custom_comm graph-mode (torchair) integration.
+"""Graph-mode (torchair / torch.compile / aclGraph) tests for allgather_batch.
 
-Test layers:
-  - Meta shape inference: no torchair needed, just the C extension
-  - Converter registration: verify the GE converter is wired up (needs torchair)
+Layers:
+  - TestMetaShapeInference : shape-only, meta-dispatch
+  - TestConverterRegistration : torchair GE converter registration
+  - TestGraphModeE2E : torch.compile(backend=torchair) end-to-end on NPU
+  - TestAclGraphCapture : NPU aclGraph capture + replay
 
-All tests are collectable on macOS / CPU; torchair-dependent tests are
-skipped when torchair is unavailable.
+Eager-mode counterparts live in ./test_eager.py.
 
 Run:
-    pytest tests/test_graph_mode.py -v
+    pytest tests/allgather_batch/test_graph.py -v
 """
-
-import inspect
 
 import pytest
 import torch
-
-# ============================================================
-# Capability probes
-# ============================================================
-
-HAS_EXT = False
-try:
-    import custom_comm  # noqa: F401
-    HAS_EXT = True
-except ImportError:
-    pass
-
-HAS_TORCHAIR = False
-try:
-    import torchair  # noqa: F401
-    HAS_TORCHAIR = True
-except ImportError:
-    pass
-
-requires_ext = pytest.mark.skipif(not HAS_EXT, reason="custom_comm C extension not built")
-requires_torchair = pytest.mark.skipif(not HAS_TORCHAIR, reason="torchair not installed")
 
 
 # ============================================================
 # 1. Meta-dispatch shape inference tests
 # ============================================================
 
-@requires_ext
+@pytest.mark.ext
 class TestMetaShapeInference:
     """Verify allgather_batch meta-dispatch produces correct output shapes."""
 
@@ -90,10 +68,8 @@ class TestMetaShapeInference:
 # 2. Converter registration tests (need torchair)
 # ============================================================
 
-requires_ext = pytest.mark.skipif(not HAS_EXT, reason="custom_comm ext not built")
-
-@requires_torchair
-@requires_ext
+@pytest.mark.torchair
+@pytest.mark.ext
 class TestConverterRegistration:
     """Verify the GE converter is registered correctly."""
 
@@ -119,32 +95,19 @@ class TestConverterRegistration:
 # Graph mode end-to-end (require NPU + torchair)
 # ============================================================
 
-HAS_NPU = False
-try:
-    import torch_npu  # noqa: F401
-    HAS_NPU = torch.npu.is_available() if hasattr(torch, "npu") else False
-except ImportError:
-    pass
-
-requires_npu = pytest.mark.skipif(not HAS_NPU, reason="NPU not available")
-
-
-@requires_npu
-@requires_torchair
-@requires_ext
+@pytest.mark.npu
+@pytest.mark.ext
+@pytest.mark.torchair
+@pytest.mark.dist
 class TestGraphModeE2E:
     """End-to-end graph mode tests. Require NPU hardware."""
 
     @pytest.fixture(autouse=True)
-    def setup(self):
-        if not torch.distributed.is_initialized():
-            pytest.skip("dist not initialized")
-        self.rank = torch.distributed.get_rank()
-        self.world_size = torch.distributed.get_world_size()
-        self.device = torch.device(f"npu:{self.rank}")
-        torch.npu.set_device(self.device)
-        pg = torch.distributed.group.WORLD
-        self.hcom = pg._get_backend(self.device).get_hccl_comm_name(self.rank)
+    def _bind(self, dist_ctx):
+        self.rank = dist_ctx.rank
+        self.world_size = dist_ctx.world_size
+        self.device = dist_ctx.device
+        self.hcom = dist_ctx.hcom
 
     def test_ge_graph_compile(self):
         """Verify torch.compile(backend='torchair') can trace allgather_batch."""
@@ -182,21 +145,18 @@ class TestGraphModeE2E:
 # aclGraph capture tests (require NPU)
 # ============================================================
 
-@requires_npu
-@requires_ext
+@pytest.mark.npu
+@pytest.mark.ext
+@pytest.mark.dist
 class TestAclGraphCapture:
-    """Verify aclGraph capture works with allgather_batch."""
+    """aclGraph capture correctness on NPU."""
 
     @pytest.fixture(autouse=True)
-    def setup_dist(self):
-        if not torch.distributed.is_initialized():
-            pytest.skip("requires distributed init")
-        self.rank = torch.distributed.get_rank()
-        self.world_size = torch.distributed.get_world_size()
-        torch.npu.set_device(self.rank)
-        self.device = torch.device(f"npu:{self.rank}")
-        pg = torch.distributed.group.WORLD
-        self.hcom = pg._get_backend(self.device).get_hccl_comm_name(self.rank)
+    def _setup(self, dist_ctx):
+        self.rank = dist_ctx.rank
+        self.world_size = dist_ctx.world_size
+        self.device = dist_ctx.device
+        self.hcom = dist_ctx.hcom
 
     def test_aclgraph_capture_replay(self):
         """aclGraph capture + replay should produce correct results."""
