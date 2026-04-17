@@ -34,6 +34,6 @@
 
 | 场景                            | 命令                                             | 状态  |
 | ------------------------------- | ------------------------------------------------ | ----- |
-| 同构INT8 (1/2/4/8 desc, 4K-10M) | `bench_allgather_batch.py`                       | 待NPU |
-| AG-09 三合一                    | `bench_allgather_batch.py --ag09`                | 待NPU |
-| Phase 2 CCU                     | `CUSTOM_COMM_USE_CCU=1 bench_allgather_batch.py` | 待NPU |
+| 同构 N (1/2/4/8 desc, 4K-10M) | `tests/allgather_batch/bench.py`                       | 待NPU |
+| AG-09 三合一                  | `tests/allgather_batch/bench.py --ag09`                | 待NPU |
+| Phase 2 CCU                   | `CUSTOM_COMM_USE_CCU=1 tests/allgather_batch/bench.py` | 待NPU |

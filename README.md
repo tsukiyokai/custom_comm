@@ -77,6 +77,9 @@ Registers a custom CCU kernel that performs multi-descriptor zero-copy RDMA gath
 Each descriptor's data is gathered directly into the output buffer without packing or
 copying. Requires CANN 9.0+ and HComm CCU API.
 
+Phase 1 and Phase 2 are both compiled into the extension by default; select the CCU
+path at runtime via the `CUSTOM_COMM_USE_CCU` environment variable (no build-time flag):
+
 ```bash
 CUSTOM_COMM_USE_CCU=1 torchrun --nproc_per_node=8 your_script.py
 ```
@@ -128,15 +131,15 @@ torchrun --nproc_per_node=8 tests/smoke_test.py
 pytest tests/ -k "meta or Meta"
 
 # NPU functional tests (Phase 1 and Phase 2)
-torchrun --nproc_per_node=8 pytest tests/test_allgather_batch.py
+torchrun --nproc_per_node=8 pytest tests/allgather_batch/test_eager.py
 
 # Graph mode tests
-torchrun --nproc_per_node=8 pytest tests/test_graph_mode.py
+torchrun --nproc_per_node=8 pytest tests/allgather_batch/test_graph.py
 
 # Performance benchmarks
-torchrun --nproc_per_node=8 tests/bench_allgather_batch.py
-torchrun --nproc_per_node=8 tests/bench_allgather_batch.py --ag09
-CUSTOM_COMM_USE_CCU=1 torchrun --nproc_per_node=8 tests/bench_allgather_batch.py
+torchrun --nproc_per_node=8 tests/allgather_batch/bench.py
+torchrun --nproc_per_node=8 tests/allgather_batch/bench.py --ag09
+CUSTOM_COMM_USE_CCU=1 torchrun --nproc_per_node=8 tests/allgather_batch/bench.py
 ```
 
 ## License
