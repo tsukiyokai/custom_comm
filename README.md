@@ -130,11 +130,12 @@ torchrun --nproc_per_node=8 tests/smoke_test.py
 # Meta-only (no NPU, no torchrun): shape inference + converter registration
 pytest tests/ -m "not npu and not dist"
 
-# NPU eager tests: Phase 1 (decomposed) and Phase 2 (CCU)
-torchrun --nproc_per_node=8 -m pytest tests/allgather_batch/test_eager.py
+# NPU eager tests: Phase 1 (decomposed) and Phase 2 (CCU).
+# -m "npu" avoids re-running meta tests on every rank.
+torchrun --nproc_per_node=8 -m pytest tests/allgather_batch/test_eager.py -m npu
 
-# Graph-mode tests: torchair converter + torch.compile + aclGraph capture
-torchrun --nproc_per_node=8 -m pytest tests/allgather_batch/test_graph.py
+# Graph-mode tests: torchair converter + torch.compile + aclGraph capture.
+torchrun --nproc_per_node=8 -m pytest tests/allgather_batch/test_graph.py -m npu
 
 # OPT-AG-04 benchmark (Phase 1 vs Phase 2, switched at runtime)
 torchrun --nproc_per_node=8 tests/allgather_batch/bench.py
