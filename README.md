@@ -127,6 +127,22 @@ custom_comm provides profiling hooks at multiple levels:
   recorded on the CCU slave stream, providing precise device-side kernel
   duration measurement independent of host-side timing overhead.
 
+### Controlling plog output
+
+| Env var | Effect |
+| --- | --- |
+| `ASCEND_GLOBAL_LOG_LEVEL` | 0=DEBUG, 1=INFO, 2=WARN, 3=ERROR (default) |
+| `ASCEND_SLOG_PRINT_TO_STDOUT` | 1 = also echo to stderr (useful during dev) |
+| `ASCEND_PROCESS_LOG_PATH` | Override default `~/ascend/log/` location |
+
+Default logs land in `~/ascend/log/debug/plog/plog-*_<pid>.log`. To stream them
+live while `torchrun` is running:
+
+```bash
+export ASCEND_GLOBAL_LOG_LEVEL=1
+tail -F ~/ascend/log/debug/plog/plog-*.log | grep custom_comm
+```
+
 ## Testing
 
 ```bash
