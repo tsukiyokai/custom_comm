@@ -66,7 +66,9 @@ try:
     for _sub in ("hcomm", "hcomm/ccu"):
         _inc.append(os.path.join(SDK, "pkg_inc", _sub))
     _inc.append(os.path.join(SDK, "include", "hccl"))
-    _extra_macros = []
+    _extra_macros = [
+        ("HCCL_COMM_HCCL_QOS_CONFIG_NOT_SET", "HCCL_COMM_QOS_CONFIG_NOT_SET"),
+    ]
 
     ext_modules = [NpuExtension(
         name="custom_comm._C",
