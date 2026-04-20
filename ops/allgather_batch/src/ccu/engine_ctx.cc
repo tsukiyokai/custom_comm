@@ -59,6 +59,11 @@ struct CcuContext {
 // ============================================================
 
 HcclResult InitCcuContext(HcclComm comm) {
+    if (comm == nullptr) {
+        CC_LOG_ERROR("InitCcuContext: comm is null");
+        return HCCL_E_PARA;
+    }
+
     // Fast path: return cached context
     void *ctx = nullptr;
     uint64_t ctxSize = 0;
@@ -89,6 +94,15 @@ HcclResult InitCcuContext(HcclComm comm) {
     HCCL_CHECK(HcclGetRankId(comm, &rankId));
     HCCL_CHECK(HcclGetRankSize(comm, &rankSize));
 
+    if (rankSize < 2) {
+        CC_LOG_ERROR("InitCcuContext: rankSize=%u too small for CCU (need >=2)", rankSize);
+        return HCCL_E_PARA;
+    }
+    if (rankId >= rankSize) {
+        CC_LOG_ERROR("InitCcuContext: rankId=%u out of range (rankSize=%u)", rankId, rankSize);
+        return HCCL_E_INTERNAL;
+    }
+
     const uint32_t numPeers = rankSize - 1;
 
     // Build channelDesc for every link to every remote rank. CCU requires
@@ -100,6 +114,11 @@ HcclResult InitCcuContext(HcclComm comm) {
         uint32_t linkNum = 0;
         CommLink *links = nullptr;
         HCCL_CHECK(HcclRankGraphGetLinks(comm, /*netLayer=*/0, rankId, r, &links, &linkNum));
+        if (links == nullptr || linkNum == 0) {
+            CC_LOG_ERROR("InitCcuContext: no links for rank=%u peer=%u (linkNum=%u)",
+                         rankId, r, linkNum);
+            return HCCL_E_INTERNAL;
+        }
         for (uint32_t i = 0; i < linkNum; ++i) {
             HcclChannelDesc desc{};
             HcclChannelDescInit(&desc, 1);
@@ -116,12 +135,24 @@ HcclResult InitCcuContext(HcclComm comm) {
         }
     }
 
+    if (channelDescs.empty()) {
+        CC_LOG_ERROR("InitCcuContext: no channel descriptors built (rankSize=%u)",
+                     rankSize);
+        return HCCL_E_INTERNAL;
+    }
+
     std::vector<ChannelHandle> channels(channelDescs.size());
     HCCL_CHECK(HcclChannelAcquire(comm, COMM_ENGINE_CCU,
                                   channelDescs.data(), channelDescs.size(),
                                   channels.data()));
+    for (size_t i = 0; i < channels.size(); ++i) {
+        if (channels[i] == 0) {
+            CC_LOG_ERROR("InitCcuContext: channels[%zu] is null after Acquire", i);
+            return HCCL_E_INTERNAL;
+        }
+    }
 
-    // 4. Register CCU kernel (compiles Algorithm -> microcode IR)
+    // 4. Register CCU kernel (RegisterBatchedAGKernel)
     HCCL_CHECK(RegisterBatchedAGKernel(comm, &ccuCtx->kernelHandle,
                                        rankId, rankSize, channels));
 
@@ -144,17 +175,33 @@ HcclResult InitCcuContext(HcclComm comm) {
 // ============================================================
 
 HcclResult LaunchCcuKernel(HcclComm comm, const void *taskArg) {
+    if (comm == nullptr || taskArg == nullptr) {
+        CC_LOG_ERROR("LaunchCcuKernel: null comm or taskArg");
+        return HCCL_E_PARA;
+    }
     auto *arg = static_cast<const AllGatherBatchTaskArg *>(taskArg);
     CC_LOG_INFO("LaunchCcuKernel: descCount=%u rank=%u/%u",
-                arg ? arg->descCount : 0U,
-                arg ? arg->rankId    : 0U,
-                arg ? arg->rankSize  : 0U);
+                arg->descCount, arg->rankId, arg->rankSize);
+    if (arg->descCount == 0 || arg->descCount > MAX_DESC_COUNT) {
+        CC_LOG_ERROR("LaunchCcuKernel: descCount=%u out of range (max=%u)",
+                     arg->descCount, MAX_DESC_COUNT);
+        return HCCL_E_PARA;
+    }
+
     void *ctx = nullptr;
     uint64_t ctxSize = 0;
     HCCL_CHECK(HcclEngineCtxGet(comm, CTX_TAG, COMM_ENGINE_CCU,
                                 &ctx, &ctxSize));
-
+    if (ctx == nullptr || ctxSize < sizeof(CcuContext)) {
+        CC_LOG_ERROR("LaunchCcuKernel: invalid ctx (ptr=%p, size=%llu)",
+                     ctx, static_cast<unsigned long long>(ctxSize));
+        return HCCL_E_INTERNAL;
+    }
     auto *ccuCtx = static_cast<CcuContext *>(ctx);
+    if (!ccuCtx->initialized) {
+        CC_LOG_ERROR("LaunchCcuKernel: ctx not initialized (did InitCcuContext succeed?)");
+        return HCCL_E_INTERNAL;
+    }
 
     return LaunchBatchedAGKernel(comm, ccuCtx->threadHandle,
                                 ccuCtx->kernelHandle, *arg);
@@ -165,14 +212,23 @@ HcclResult LaunchCcuKernel(HcclComm comm, const void *taskArg) {
 // ============================================================
 
 HcclResult GetCcuThreadHandle(HcclComm comm, uint64_t *threadHandle) {
+    if (comm == nullptr || threadHandle == nullptr) {
+        CC_LOG_ERROR("GetCcuThreadHandle: null comm or out-param");
+        return HCCL_E_PARA;
+    }
     void *ctx = nullptr;
     uint64_t ctxSize = 0;
     HCCL_CHECK(HcclEngineCtxGet(comm, CTX_TAG, COMM_ENGINE_CCU,
                                 &ctx, &ctxSize));
-
-    if (ctx == nullptr) return HCCL_E_INTERNAL;
+    if (ctx == nullptr || ctxSize < sizeof(CcuContext)) {
+        CC_LOG_ERROR("GetCcuThreadHandle: ctx missing or too small");
+        return HCCL_E_INTERNAL;
+    }
     auto *ccuCtx = static_cast<CcuContext *>(ctx);
-    if (!ccuCtx || ccuCtx->threadHandle == 0) return HCCL_E_INTERNAL;
+    if (!ccuCtx->initialized || ccuCtx->threadHandle == 0) {
+        CC_LOG_ERROR("GetCcuThreadHandle: ctx not initialized");
+        return HCCL_E_INTERNAL;
+    }
     *threadHandle = ccuCtx->threadHandle;
     return HCCL_SUCCESS;
 }

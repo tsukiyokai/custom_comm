@@ -219,10 +219,20 @@ std::vector<at::Tensor> allgather_batch_npu(
     TORCH_CHECK(inputs.size() <= MAX_DESC_COUNT,
                 "inputs.size() (", inputs.size(), ") exceeds MAX_DESC_COUNT");
     TORCH_CHECK(world_size > 0, "world_size must be positive");
+    TORCH_CHECK(!hcom.empty(), "hcom (HCCL group name) must be non-empty");
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        const auto &t = inputs[i];
+        TORCH_CHECK(t.defined(), "inputs[", i, "] is undefined");
+        TORCH_CHECK(t.dim() >= 1, "inputs[", i, "] must be at least 1-D");
+        TORCH_CHECK(t.numel() > 0, "inputs[", i, "] is empty");
+    }
 
     const uint32_t descCount = static_cast<uint32_t>(inputs.size());
     HcclComm comm = GetCachedComm(hcom);
+    TORCH_CHECK(comm != nullptr, "failed to resolve HcclComm from hcom=",
+                std::string(hcom.data(), hcom.size()));
     aclrtStream computeStream = c10_npu::getCurrentNPUStream().stream(false);
+    TORCH_CHECK(computeStream != nullptr, "NPU compute stream is null");
 
     // Build descriptors and pre-allocate outputs
     HcclAllGatherDesc descs[MAX_DESC_COUNT];
@@ -300,6 +310,7 @@ static void allgather_batch_inplace(
     TORCH_CHECK(!inputs.empty() && inputs.size() == outputs.size());
     TORCH_CHECK(world_size > 0);
     HcclComm comm = GetCachedComm(hcom);
+    TORCH_CHECK(comm != nullptr, "Failed to resolve HCCL comm from hcom string");
     aclrtStream computeStream = c10_npu::getCurrentNPUStream().stream(false);
 
     const uint32_t n = static_cast<uint32_t>(inputs.size());

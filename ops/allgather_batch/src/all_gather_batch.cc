@@ -188,6 +188,14 @@ HcclResult HcclAllGatherBatch(
     HcclComm comm,
     aclrtStream stream) {
 
+    if (comm == nullptr) {
+        CC_LOG_ERROR("HcclAllGatherBatch: comm is null");
+        return HCCL_E_PTR;
+    }
+    if (stream == nullptr) {
+        CC_LOG_ERROR("HcclAllGatherBatch: stream is null");
+        return HCCL_E_PTR;
+    }
     HCCL_CHECK(ValidateParams(descs, descCount));
     CC_LOG_INFO("HcclAllGatherBatch: descCount=%u, useCcu=%d",
                 descCount, UseCcuPath() ? 1 : 0);
